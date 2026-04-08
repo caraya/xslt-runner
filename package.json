@@ -1,0 +1,171 @@
+{
+  "name": "xslt-runner",
+  "displayName": "%displayName%",
+  "description": "%description%",
+  "version": "0.1.0",
+  "publisher": "your-publisher-id",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/xslt-runner"
+  },
+  "homepage": "https://github.com/your-org/xslt-runner#readme",
+  "bugs": {
+    "url": "https://github.com/your-org/xslt-runner/issues"
+  },
+  "keywords": [
+    "xslt",
+    "xml",
+    "pandoc",
+    "transformation",
+    "conversion"
+  ],
+  "engines": {
+    "vscode": "^1.101.0"
+  },
+  "main": "./out/extension.js",
+  "categories": [
+    "Other"
+  ],
+  "capabilities": {
+    "virtualWorkspaces": false,
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "xsltRunner.runWithConfiguredBackend",
+        "title": "%command.runConfigured.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "xsltRunner.runWithJava",
+        "title": "%command.runJava.title%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "xsltRunner.runWithPandoc",
+        "title": "%command.runPandoc.title%",
+        "category": "%command.category%"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "xsltRunner.runWithConfiguredBackend"
+        },
+        {
+          "command": "xsltRunner.runWithJava"
+        },
+        {
+          "command": "xsltRunner.runWithPandoc"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "xsltRunner.runWithConfiguredBackend",
+          "when": "resourceScheme == file",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "xsltRunner.runWithConfiguredBackend",
+          "when": "resourceScheme == file",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "xsltRunner.runWithConfiguredBackend",
+          "when": "resourceScheme == file",
+          "group": "navigation@100"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "%config.title%",
+      "properties": {
+        "xsltRunner.backend": {
+          "type": "string",
+          "enum": [
+            "java",
+            "pandoc"
+          ],
+          "default": "java",
+          "markdownDescription": "%config.backend.description%"
+        },
+        "xsltRunner.java.path": {
+          "type": "string",
+          "default": "java",
+          "description": "%config.java.path.description%"
+        },
+        "xsltRunner.java.saxonJarPath": {
+          "type": "string",
+          "default": "",
+          "description": "%config.java.saxonJarPath.description%"
+        },
+        "xsltRunner.java.stylesheetDirectory": {
+          "type": "string",
+          "default": "",
+          "description": "%config.java.stylesheetDirectory.description%"
+        },
+        "xsltRunner.java.extraArgs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "%config.java.extraArgs.description%"
+        },
+        "xsltRunner.pandoc.path": {
+          "type": "string",
+          "default": "",
+          "description": "%config.pandoc.path.description%"
+        },
+        "xsltRunner.pandoc.extraPathEntries": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "%config.pandoc.extraPathEntries.description%"
+        },
+        "xsltRunner.pandoc.from": {
+          "type": "string",
+          "default": "",
+          "description": "%config.pandoc.from.description%"
+        },
+        "xsltRunner.pandoc.to": {
+          "type": "string",
+          "default": "html",
+          "description": "%config.pandoc.to.description%"
+        },
+        "xsltRunner.pandoc.extraArgs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "%config.pandoc.extraArgs.description%"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile",
+    "package:vsix": "vsce package"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.101.0",
+    "@vscode/vsce": "^3.6.0",
+    "typescript": "^5.9.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "displayName": "XSLT Runner",
+  "description": "Run XML transformations with Java (Saxon) or document conversions with Pandoc.",
+  "capability.untrusted": "This extension executes local binaries and is disabled in untrusted workspaces.",
+  "command.category": "XSLT Runner",
+  "command.runConfigured.title": "Run Conversion (Configured Backend)",
+  "command.runJava.title": "Run XSLT with Java",
+  "command.runPandoc.title": "Run Conversion with Pandoc",
+  "config.title": "XSLT Runner",
+  "config.backend.description": "Default backend used by **Run Conversion (Configured Backend)**.",
+  "config.java.path.description": "Path to the Java executable.",
+  "config.java.saxonJarPath.description": "Path to a Saxon JAR (for example, saxon-he.jar). Required for Java XSLT runs.",
+  "config.java.stylesheetDirectory.description": "Directory containing XSLT stylesheets used for Java conversions.",
+  "config.java.extraArgs.description": "Additional Java arguments appended after Saxon arguments.",
+  "config.pandoc.path.description": "Path to the Pandoc executable. Leave empty to use an OS-specific default location.",
+  "config.pandoc.extraPathEntries.description": "Additional PATH entries used when running Pandoc (for example, directories containing pdflatex).",
+  "config.pandoc.from.description": "Pandoc input format (for example, markdown, docbook). Leave empty for auto-detect.",
+  "config.pandoc.to.description": "Default Pandoc output format. The command validates the final target format against formats reported by Pandoc.",
+  "config.pandoc.extraArgs.description": "Additional Pandoc arguments appended to the conversion command."
+}
