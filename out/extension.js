@@ -39,6 +39,11 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.xsltRunnerCommandIds = void 0;
 exports.activate = activate;
+exports.normalizeExtension = normalizeExtension;
+exports.getCommonOutputExtensionChoices = getCommonOutputExtensionChoices;
+exports.buildOutputExtensionReminder = buildOutputExtensionReminder;
+exports.extractRootNamespace = extractRootNamespace;
+exports.detectXmlDocumentFamily = detectXmlDocumentFamily;
 const cp = __importStar(require("child_process"));
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -46,7 +51,8 @@ const vscode = __importStar(require("vscode"));
 const configuredCommandId = 'xsltRunner.runWithConfiguredBackend';
 const javaCommandId = 'xsltRunner.runWithJava';
 const pandocCommandId = 'xsltRunner.runWithPandoc';
-exports.xsltRunnerCommandIds = [configuredCommandId, javaCommandId, pandocCommandId];
+const setSaxonJarPathCommandId = 'xsltRunner.setSaxonJarPath';
+exports.xsltRunnerCommandIds = [configuredCommandId, javaCommandId, pandocCommandId, setSaxonJarPathCommandId];
 function activate(context) {
     const outputChannel = vscode.window.createOutputChannel('XSLT Runner');
     context.subscriptions.push(outputChannel);
@@ -81,13 +87,29 @@ function activate(context) {
     context.subscriptions.push(vscode.commands.registerCommand(pandocCommandId, async () => {
         await runPandocConversion(getRunnerConfig(), outputChannel);
     }));
+    context.subscriptions.push(vscode.commands.registerCommand(setSaxonJarPathCommandId, async () => {
+        const uris = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: false,
+            canSelectMany: false,
+            openLabel: vscode.l10n.t('Select Saxon JAR'),
+            filters: { 'JAR Files': ['jar'] },
+            title: vscode.l10n.t('Select Saxon JAR File')
+        });
+        if (!uris?.[0]) {
+            return;
+        }
+        await vscode.workspace.getConfiguration('xsltRunner').update('java.saxonJarPath', uris[0].fsPath, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(vscode.l10n.t('Saxon JAR path set to: {0}', uris[0].fsPath));
+    }));
 }
 function getRunnerConfig() {
     const config = vscode.workspace.getConfiguration('xsltRunner');
+    const configuredJavaPath = config.get('java.path', '').trim();
     const configuredPandocPath = config.get('pandoc.path', '').trim();
     return {
         backend: config.get('backend', 'java'),
-        javaPath: config.get('java.path', 'java'),
+        javaPath: resolveJavaPath(configuredJavaPath),
         saxonJarPath: config.get('java.saxonJarPath', '').trim(),
         stylesheetDirectory: config.get('java.stylesheetDirectory', '').trim(),
         javaExtraArgs: config.get('java.extraArgs', []),
@@ -97,6 +119,33 @@ function getRunnerConfig() {
         pandocTo: config.get('pandoc.to', 'html').trim(),
         pandocExtraArgs: config.get('pandoc.extraArgs', [])
     };
+}
+function resolveJavaPath(configuredJavaPath) {
+    if (configuredJavaPath) {
+        return configuredJavaPath;
+    }
+    const defaultCandidates = getDefaultJavaCandidates();
+    const absoluteCandidate = defaultCandidates.find(candidate => path.isAbsolute(candidate) && fs.existsSync(candidate));
+    if (absoluteCandidate) {
+        return absoluteCandidate;
+    }
+    return defaultCandidates[defaultCandidates.length - 1];
+}
+function getDefaultJavaCandidates() {
+    if (process.platform === 'darwin') {
+        const homebrew = process.arch === 'arm64' ? '/opt/homebrew' : '/usr/local';
+        return [
+            `${homebrew}/opt/openjdk/bin/java`,
+            `${homebrew}/opt/openjdk@21/bin/java`,
+            `${homebrew}/opt/openjdk@17/bin/java`,
+            '/usr/bin/java',
+            'java'
+        ];
+    }
+    if (process.platform === 'win32') {
+        return ['java.exe'];
+    }
+    return ['/usr/bin/java', '/usr/local/bin/java', 'java'];
 }
 function resolvePandocPath(configuredPandocPath) {
     if (configuredPandocPath) {
@@ -122,12 +171,24 @@ function getDefaultPandocCandidates() {
     return ['/usr/bin/pandoc', '/usr/local/bin/pandoc', 'pandoc'];
 }
 async function runJavaTransformation(config, outputChannel) {
-    const source = await pickSourceFile(vscode.l10n.t('Select XML Source File'));
+    const source = await pickSourceFile({
+        placeHolder: vscode.l10n.t('Choose the XML input file to transform'),
+        useActiveLabel: vscode.l10n.t('Use Active File as XML Input'),
+        pickDifferentLabel: vscode.l10n.t('Choose a Different XML Input File'),
+        openDialogTitle: vscode.l10n.t('Select XML Input File'),
+        filters: {
+            'XML Files': ['xml']
+        }
+    });
     if (!source) {
         return;
     }
     if (!config.saxonJarPath) {
-        vscode.window.showErrorMessage(vscode.l10n.t('Set xsltRunner.java.saxonJarPath before running Java XSLT conversions.'));
+        const openSettings = vscode.l10n.t('Open Settings');
+        const selection = await vscode.window.showErrorMessage(vscode.l10n.t('Set xsltRunner.java.saxonJarPath before running Java XSLT conversions.'), openSettings);
+        if (selection === openSettings) {
+            await vscode.commands.executeCommand('workbench.action.openSettings', 'xsltRunner.java.saxonJarPath');
+        }
         return;
     }
     const stylesheetDirectory = await resolveStylesheetDirectory(config.stylesheetDirectory);
@@ -140,8 +201,17 @@ async function runJavaTransformation(config, outputChannel) {
     if (!stylesheet) {
         return;
     }
-    const output = await pickOutputFile(source, '.transformed.xml');
+    const sourceFamily = detectXmlDocumentFamily(source);
+    const outputChoice = await pickJavaOutputExtension(sourceFamily);
+    if (!outputChoice) {
+        return;
+    }
+    const output = await pickOutputFile(source, `.transformed.${outputChoice.primaryExtension}`, buildOutputExtensionReminder(outputChoice));
     if (!output) {
+        return;
+    }
+    const normalizedOutput = await confirmOutputExtension(output, outputChoice);
+    if (!normalizedOutput) {
         return;
     }
     const args = [
@@ -149,7 +219,7 @@ async function runJavaTransformation(config, outputChannel) {
         config.saxonJarPath,
         `-s:${source.fsPath}`,
         `-xsl:${stylesheet.fsPath}`,
-        `-o:${output.fsPath}`,
+        `-o:${normalizedOutput.fsPath}`,
         ...config.javaExtraArgs
     ];
     await runExternalProcess(config.javaPath, args, source, outputChannel, vscode.l10n.t('Java XSLT transformation completed.'));
@@ -161,7 +231,12 @@ async function runPandocConversion(config, outputChannel) {
     if (pandocPathEntries.length > 0) {
         outputChannel.appendLine(`Using PATH additions for Pandoc: ${pandocPathEntries.join(path.delimiter)}`);
     }
-    const source = await pickSourceFile(vscode.l10n.t('Select Source File for Pandoc'));
+    const source = await pickSourceFile({
+        placeHolder: vscode.l10n.t('Choose the source file for the Pandoc conversion'),
+        useActiveLabel: vscode.l10n.t('Use Active File as Source'),
+        pickDifferentLabel: vscode.l10n.t('Choose a Different Source File'),
+        openDialogTitle: vscode.l10n.t('Select Source File for Pandoc')
+    });
     if (!source) {
         return;
     }
@@ -182,14 +257,15 @@ async function runPandocConversion(config, outputChannel) {
     args.push('--output', output.fsPath, ...config.pandocExtraArgs);
     await runExternalProcess(config.pandocPath, args, source, outputChannel, vscode.l10n.t('Pandoc conversion completed.'), pandocPathEntries);
 }
-async function pickSourceFile(placeHolder) {
+async function pickSourceFile(options) {
     const activeUri = vscode.window.activeTextEditor?.document.uri;
     if (activeUri?.scheme === 'file') {
         const useActive = await vscode.window.showQuickPick([
-            { label: vscode.l10n.t('Use Active File'), uri: activeUri },
-            { label: vscode.l10n.t('Pick a Different File') }
+            { label: options.useActiveLabel, uri: activeUri },
+            { label: options.pickDifferentLabel }
         ], {
-            placeHolder
+            placeHolder: options.placeHolder,
+            title: options.openDialogTitle
         });
         if (!useActive) {
             return undefined;
@@ -198,7 +274,7 @@ async function pickSourceFile(placeHolder) {
             return useActive.uri;
         }
     }
-    return pickFile(placeHolder);
+    return pickFile(options.openDialogTitle ?? options.placeHolder, options.filters);
 }
 async function pickFile(placeHolder, filters, defaultUri) {
     const uris = await vscode.window.showOpenDialog({
@@ -271,18 +347,163 @@ async function getPandocOutputFormats(pandocPath, source, outputChannel, pandocP
         return [];
     }
 }
-async function pickOutputFile(source, suffix) {
+async function pickOutputFile(source, suffix, reminder) {
     const sourceFileName = path.basename(source.fsPath, path.extname(source.fsPath));
     const defaultOutputName = `${sourceFileName}${suffix}`;
     const defaultUri = vscode.Uri.file(path.join(path.dirname(source.fsPath), defaultOutputName));
+    const title = reminder
+        ? vscode.l10n.t('Select Output File. {0}', reminder)
+        : vscode.l10n.t('Select Output File');
     return vscode.window.showSaveDialog({
-        title: vscode.l10n.t('Select Output File'),
+        title,
         saveLabel: vscode.l10n.t('Save Output'),
         defaultUri,
         filters: {
             All: ['*']
         }
     });
+}
+async function pickJavaOutputExtension(sourceFamily) {
+    const commonExtensions = getCommonOutputExtensionChoices();
+    const selected = await vscode.window.showQuickPick([
+        ...commonExtensions.map(choice => ({
+            label: choice.label,
+            description: choice.description,
+            choice
+        })),
+        {
+            label: vscode.l10n.t('Enter a Custom Extension'),
+            choice: undefined
+        }
+    ], {
+        placeHolder: vscode.l10n.t('Choose the file extension for the transformation result'),
+        title: sourceFamily
+            ? vscode.l10n.t('Detected source document family: {0}', sourceFamily)
+            : undefined
+    });
+    if (!selected) {
+        return undefined;
+    }
+    if (selected.choice) {
+        return selected.choice;
+    }
+    const customExtension = await vscode.window.showInputBox({
+        prompt: vscode.l10n.t('Enter the output file extension without the leading dot'),
+        placeHolder: vscode.l10n.t('Examples: html, htm, xhtml, fo, xml'),
+        value: 'xml',
+        validateInput: value => {
+            const normalizedValue = normalizeExtension(value);
+            if (!normalizedValue) {
+                return vscode.l10n.t('Enter at least one letter or number for the file extension.');
+            }
+            if (!/^[a-z0-9][a-z0-9._-]*$/i.test(normalizedValue)) {
+                return vscode.l10n.t('Use only letters, numbers, dots, hyphens, or underscores.');
+            }
+            return undefined;
+        }
+    });
+    const normalizedExtension = normalizeExtension(customExtension);
+    if (!normalizedExtension) {
+        return undefined;
+    }
+    return {
+        label: `.${normalizedExtension}`,
+        primaryExtension: normalizedExtension,
+        acceptedExtensions: [normalizedExtension]
+    };
+}
+function getCommonOutputExtensionChoices() {
+    return [
+        {
+            label: '.xml',
+            primaryExtension: 'xml',
+            acceptedExtensions: ['xml']
+        },
+        {
+            label: '.html',
+            primaryExtension: 'html',
+            acceptedExtensions: ['html', 'htm'],
+            description: vscode.l10n.t('Accepts .html or .htm')
+        },
+        {
+            label: '.xhtml',
+            primaryExtension: 'xhtml',
+            acceptedExtensions: ['xhtml']
+        },
+        {
+            label: '.txt',
+            primaryExtension: 'txt',
+            acceptedExtensions: ['txt', 'text'],
+            description: vscode.l10n.t('Accepts .txt or .text')
+        },
+        {
+            label: '.fo',
+            primaryExtension: 'fo',
+            acceptedExtensions: ['fo']
+        },
+        {
+            label: '.json',
+            primaryExtension: 'json',
+            acceptedExtensions: ['json']
+        }
+    ];
+}
+function buildOutputExtensionReminder(choice) {
+    if (choice.acceptedExtensions.length === 1) {
+        return vscode.l10n.t('Using .{0} as the suggested extension for this transform output.', choice.primaryExtension);
+    }
+    return vscode.l10n.t('Using .{0} as the suggested extension for this transform output. Equivalent extensions: {1}.', choice.primaryExtension, choice.acceptedExtensions.map(extension => `.${extension}`).join(', '));
+}
+async function confirmOutputExtension(output, choice) {
+    const selectedExtension = normalizeExtension(path.extname(output.fsPath));
+    if (selectedExtension && choice.acceptedExtensions.includes(selectedExtension)) {
+        return output;
+    }
+    const preferredOutput = replaceFileExtension(output, choice.primaryExtension);
+    const useSuggested = vscode.l10n.t('Use .{0}', choice.primaryExtension);
+    const keepChosen = vscode.l10n.t('Keep Chosen Filename');
+    const selection = await vscode.window.showWarningMessage(vscode.l10n.t('The selected filename does not match the chosen output extension. Expected {0}.', choice.acceptedExtensions.map(extension => `.${extension}`).join(' or ')), useSuggested, keepChosen);
+    if (!selection) {
+        return undefined;
+    }
+    if (selection === useSuggested) {
+        return preferredOutput;
+    }
+    return output;
+}
+function replaceFileExtension(fileUri, extension) {
+    const directory = path.dirname(fileUri.fsPath);
+    const fileName = path.basename(fileUri.fsPath, path.extname(fileUri.fsPath));
+    return vscode.Uri.file(path.join(directory, `${fileName}.${extension}`));
+}
+function detectXmlDocumentFamily(source) {
+    try {
+        const sourceContent = fs.readFileSync(source.fsPath, 'utf8');
+        const rootNamespace = extractRootNamespace(sourceContent);
+        if (rootNamespace === 'http://www.tei-c.org/ns/1.0') {
+            return 'TEI';
+        }
+        if (rootNamespace === 'http://docbook.org/ns/docbook') {
+            return 'DocBook';
+        }
+    }
+    catch {
+        return undefined;
+    }
+    return undefined;
+}
+function extractRootNamespace(xmlContent) {
+    const rootElementMatch = xmlContent.match(/<([\w.-]+:)?([\w.-]+)\b([^>]*)>/i);
+    if (!rootElementMatch) {
+        return undefined;
+    }
+    const attributes = rootElementMatch[3] ?? '';
+    const namespaceMatch = attributes.match(/\bxmlns\s*=\s*(["'])([^"']+)\1/i);
+    return namespaceMatch?.[2]?.trim();
+}
+function normalizeExtension(value) {
+    const normalizedValue = value?.trim().replace(/^\.+/, '').toLowerCase();
+    return normalizedValue ? normalizedValue : undefined;
 }
 function getDefaultFolderUri() {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];

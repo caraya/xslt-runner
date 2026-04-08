@@ -2,9 +2,7 @@
 	"compilerOptions": {
 		"rootDir": "./src",
 		"outDir": "./out",
-		"types": [
-			"node"
-		],
+		"types": ["node", "mocha"],
 		"typeRoots": [
 			"./node_modules/@types",
 			"../../node_modules/@types"
