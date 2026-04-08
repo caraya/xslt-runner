@@ -3,8 +3,7 @@
 		"rootDir": "./src",
 		"outDir": "./out",
 		"types": [
-			"node",
-			"mocha"
+			"node"
 		],
 		"typeRoots": [
 			"./node_modules/@types",
